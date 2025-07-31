@@ -22,7 +22,6 @@ import os
 
 # === Lista de usuários autorizados (coloque aqui os IDs permitidos) ===
 USUARIOS_AUTORIZADOS = set(map(int, os.getenv("AUTHORIZED_USERS", "").split(",")))
-print(USUARIOS_AUTORIZADOS)
 
 # === Autenticação com Google Sheets ===
 escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
