@@ -9,19 +9,24 @@ from telegram.ext import ContextTypes
 from telegram.ext import filters
 from telegram.ext import CallbackQueryHandler
 
-import csv
 from datetime import datetime
-from os.path import exists
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-CSV_FILE = "gastos.csv"
+import os
 
-if not exists(CSV_FILE):
-    with open(CSV_FILE, mode="w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["data", "categoria", "valor"])
+# === Autenticação com Google Sheets ===
+escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+credenciais = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", escopos)
+cliente = gspread.authorize(credenciais)
 
 
-# Comando /start
+# === Abre a planilha e seleciona a aba
+planilha = cliente.open("Controle financeiro")
+aba = planilha.worksheet("Auxiliar")
+
+
+# === Comando /iniciar
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Cria os botões do menu
@@ -38,7 +43,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# Manipula os botões do menu
+# === Manipula os cliques nos botões
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     query = update.callback_query
@@ -63,24 +68,21 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Nível 1: Desfazer
     elif data == "menu_remover":
         try:
-            with open(CSV_FILE, "r", encoding="utf-8") as f:
-                linhas = f.readlines()
+            registros = aba.get_all_values()
 
-            if not linhas:
+            if not registros or len(registros) == 0:
                 await query.edit_message_text("⚠️ Nenhum gasto registrado ainda.")
                 return
 
-            # Remove a última linha
-            ultimo = linhas.pop()
-            #linhas = linhas[:-1]
-
-            with open(CSV_FILE, "w", encoding="utf-8") as f:
-                f.writelines(linhas)
-
-            await query.edit_message_text(f"✅ Último gasto, no valor de R$ {ultimo.strip().split(',')[-1]}, removido com sucesso.")
+            # Posição da última linha
+            ultima_linha = len(registros)
+            ultimo_valor = registros[-1][2]
+            aba.delete_rows(ultima_linha)
+            
+            await query.edit_message_text(f"✅ Último gasto, no valor de R$ {ultimo_valor}, removido com sucesso.")
         
-        except FileNotFoundError:
-            await query.edit_message_text("⚠️ Arquivo de registro não encontrado.")
+        except Exception as e:
+            await query.edit_message_text(f"⚠️ Erro ao remover {e}.")
 
     # Nível 1: Outros
     elif data == "menu_outros_n1":
@@ -96,7 +98,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Você escolheu: Gasto com Uber.\nQual foi o valor (R$)?")
 
 
-# Responder qualquer texto enviado
+# === Responder qualquer texto enviado
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     texto = update.message.text
@@ -106,10 +108,8 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             valor = float(texto.replace(",", "."))
             data = datetime.now().strftime("%d/%m/%Y")
 
-            # Salva no csv
-            with open(file=CSV_FILE, mode="a", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow([data, "Uber", f'{valor:.2f}'])
+            # Escrever na aba do google sheets
+            aba.append_row([data, "Uber", f"{valor:.2f}".replace(".", ",")])
 
             await update.message.reply_text(f"✅ Você registrou R$ {valor:.2f}".replace('.', ','))
             
@@ -125,10 +125,9 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Inicialização do bot
 if __name__ == '__main__':
 
-    with open("token.txt") as tofenfile:
-        token = tofenfile.read()
+    TOKEN = os.getenv("BOT_TOKEN")
 
-    app = ApplicationBuilder().token(token).build()
+    app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("iniciar", start))
     app.add_handler(CallbackQueryHandler(menu_handler)) 
