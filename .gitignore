@@ -3,3 +3,4 @@ venv_bot/*
 credentials.json
 *.csv
 test/*
+.env

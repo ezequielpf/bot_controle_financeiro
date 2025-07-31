@@ -15,6 +15,14 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 import os
 
+#from dotenv import load_dotenv
+#
+## === Lê as variáveis do arquivo .env
+#load_dotenv()
+
+# === Lista de usuários autorizados (coloque aqui os IDs permitidos) ===
+USUARIOS_AUTORIZADOS = {1027995026}
+
 # === Autenticação com Google Sheets ===
 escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 credenciais = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", escopos)
@@ -25,9 +33,18 @@ cliente = gspread.authorize(credenciais)
 planilha = cliente.open("Controle financeiro")
 aba = planilha.worksheet("Auxiliar")
 
+# === Função para verificar se o usuário está autorizado ===
+def usuario_autorizado(update: Update) -> bool:
+    user_id = update.effective_user.id
+    return user_id in USUARIOS_AUTORIZADOS
+
 
 # === Comando /iniciar
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not usuario_autorizado(update):
+        await update.callback_query.answer("❌ Acesso negado.", show_alert=True)
+        return
 
     # Cria os botões do menu
     keyboard = [
@@ -45,6 +62,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # === Manipula os cliques nos botões
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not usuario_autorizado(update):
+        await update.callback_query.answer("❌ Acesso negado.", show_alert=True)
+        return
     
     query = update.callback_query
     # Confirma o clique (evita "loading...")
@@ -100,6 +121,10 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # === Responder qualquer texto enviado
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not usuario_autorizado(update):
+        await update.callback_query.answer("❌ Acesso negado.", show_alert=True)
+        return
     
     texto = update.message.text
 
