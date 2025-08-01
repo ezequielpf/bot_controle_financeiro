@@ -1,182 +1,123 @@
 from flask import Flask, request
 
-from telegram import Update
-from telegram import InlineKeyboardButton
-from telegram import InlineKeyboardMarkup
-
-from telegram.ext import ApplicationBuilder
-from telegram.ext import CommandHandler
-from telegram.ext import MessageHandler
-from telegram.ext import ContextTypes
-from telegram.ext import filters
-from telegram.ext import CallbackQueryHandler
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-
 import os
 
-#from dotenv import load_dotenv
-
-## === Lê as variáveis do arquivo .env
-#load_dotenv()
-
-# === Lista de usuários autorizados (coloque aqui os IDs permitidos) ===
+# === Autorização ===
 USUARIOS_AUTORIZADOS = set(map(int, os.getenv("AUTHORIZED_USERS", "").split(",")))
 
-# === Autenticação com Google Sheets ===
+# === Google Sheets ===
 escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 credenciais = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", escopos)
 cliente = gspread.authorize(credenciais)
-
-
-# === Abre a planilha e seleciona a aba
 planilha = cliente.open("Controle financeiro")
 aba = planilha.worksheet("Auxiliar")
 
-# === Função para verificar se o usuário está autorizado ===
 def usuario_autorizado(update: Update) -> bool:
     user_id = update.effective_user.id
     return user_id in USUARIOS_AUTORIZADOS
 
-
-# === Comando /iniciar
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
+# === Handlers síncronos ===
+def start(update: Update, context):
     if not usuario_autorizado(update):
-        await update.callback_query.answer("❌ Acesso negado.", show_alert=True)
+        update.message.reply_text("❌ Acesso negado.")
         return
 
-    # Cria os botões do menu
     keyboard = [
         [InlineKeyboardButton(text="➕ Adicionar novo gasto", callback_data="menu_adicionar")],
-        [InlineKeyboardButton("➖ Remover último gasto", callback_data="menu_remover")], 
+        [InlineKeyboardButton("➖ Remover último gasto", callback_data="menu_remover")],
         [InlineKeyboardButton(text="📦 Outros", callback_data="menu_outros_n1")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
+    update.message.reply_text(
         text="Olá! Eu sou seu assistente de finanças pessoas.\nComo posso ajudar?",
         reply_markup=reply_markup
-        )
+    )
 
-
-# === Manipula os cliques nos botões
-async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not usuario_autorizado(update):
-        await update.callback_query.answer("❌ Acesso negado.", show_alert=True)
-        return
-    
+def menu_handler(update: Update, context):
     query = update.callback_query
-    # Confirma o clique (evita "loading...")
-    await query.answer()
+    if not usuario_autorizado(update):
+        query.answer("❌ Acesso negado.", show_alert=True)
+        return
 
-    # Retorna qual o contexto estamos
+    query.answer()
     data = query.data
 
-    # Nível 1: Adicionar
     if data == "menu_adicionar":
-
         keyboard = [
             [InlineKeyboardButton(text="🚗 Uber", callback_data="gasto_uber")],
             [InlineKeyboardButton(text="📦 Outros", callback_data="menu_outros_n2")]
         ]
-
         reply_markup = InlineKeyboardMarkup(keyboard)
+        query.edit_message_text("Escolha a categoria:", reply_markup=reply_markup)
 
-        await query.edit_message_text(text="Escolha a categoria:", reply_markup=reply_markup)
-
-    # Nível 1: Desfazer
     elif data == "menu_remover":
         try:
             registros = aba.get_all_values()
-
-            if not registros or len(registros) == 0:
-                await query.edit_message_text("⚠️ Nenhum gasto registrado ainda.")
+            if not registros:
+                query.edit_message_text("⚠️ Nenhum gasto registrado ainda.")
                 return
 
-            # Posição da última linha
             ultima_linha = len(registros)
             ultimo_valor = registros[-1][2]
             aba.delete_rows(ultima_linha)
-            
-            await query.edit_message_text(f"✅ Último gasto, no valor de R$ {ultimo_valor}, removido com sucesso.")
-        
+            query.edit_message_text(f"✅ Último gasto, no valor de R$ {ultimo_valor}, removido com sucesso.")
         except Exception as e:
-            await query.edit_message_text(f"⚠️ Erro ao remover {e}.")
+            query.edit_message_text(f"⚠️ Erro ao remover {e}.")
 
-    # Nível 1: Outros
-    elif data == "menu_outros_n1":
-        await query.edit_message_text("❌ Funcionalidade não disponível no momento.") 
+    elif data == "menu_outros_n1" or data == "menu_outros_n2":
+        query.edit_message_text("❌ Funcionalidade não disponível no momento.")
 
-    # Nível 2: Outros
-    elif data == "menu_outros_n2":
-        await query.edit_message_text("❌ Funcionalidade não disponível no momento.")
-
-    # Nível 2: Uber
     elif data == "gasto_uber":
         context.user_data["modo"] = "gasto_uber"
-        await query.edit_message_text("Você escolheu: Gasto com Uber.\nQual foi o valor (R$)?")
+        query.edit_message_text("Você escolheu: Gasto com Uber.\nQual foi o valor (R$)?")
 
-
-# === Responder qualquer texto enviado
-async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
+def responder(update: Update, context):
     if not usuario_autorizado(update):
-        await update.callback_query.answer("❌ Acesso negado.", show_alert=True)
+        update.message.reply_text("❌ Acesso negado.")
         return
-    
+
     texto = update.message.text
 
     if context.user_data.get("modo") == "gasto_uber":
         try:
             valor = float(texto.replace(",", "."))
             data = datetime.now().strftime("%d/%m/%Y")
-
-            # Escrever na aba do google sheets
             aba.append_row([data, "Uber", f"{valor:.2f}".replace(".", ",")])
-
-            await update.message.reply_text(f"✅ Você registrou R$ {valor:.2f}".replace('.', ','))
-            
-            # Limpa o estado
+            update.message.reply_text(f"✅ Você registrou R$ {valor:.2f}".replace(".", ","))
             context.user_data["modo"] = None
-
         except ValueError:
-            await update.message.reply_text("❌ Por favor, digite um valor numérico. Ex: 23.50 ou 23,50")
+            update.message.reply_text("❌ Por favor, digite um valor numérico. Ex: 23.50 ou 23,50")
     else:
-        await update.message.reply_text("ℹ️ Para registrar um gasto, clique primeiro no menu /iniciar.")
+        update.message.reply_text("ℹ️ Para registrar um gasto, clique primeiro no menu /iniciar.")
 
-
-# === Inicialização do bot com webhook
+# === Flask App e Telegram App ===
 app_flask = Flask(__name__)
-
 TOKEN = os.getenv("BOT_TOKEN")
 
-# Inicializa o bot Telegram
-app = ApplicationBuilder().token(TOKEN).build()
+application = ApplicationBuilder().token(TOKEN).build()
+application.add_handler(CommandHandler("iniciar", start))
+application.add_handler(CallbackQueryHandler(menu_handler))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
-# Adiciona os handlers
-app.add_handler(CommandHandler("iniciar", start))
-app.add_handler(CallbackQueryHandler(menu_handler)) 
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
-
-# Rota que recebe atualizações do Telegram
-@app_flask.post("/")
-async def webhook():
+# Webhook síncrono
+@app_flask.route("/", methods=["POST"])
+def webhook():
     data = request.get_json(force=True)
-    update = Update.de_json(data, app.bot)
-    await app.process_update(update)
+    update = Update.de_json(data, application.bot)
+    application.update_queue.put_nowait(update)
     return "OK", 200
 
-# Rota de teste
-@app_flask.get("/")
+@app_flask.route("/", methods=["GET"])
 def index():
     return "Bot rodando com webhook!", 200
 
-# Inicia o servidor Flask
 if __name__ == '__main__':
-
     port = int(os.environ.get("PORT", 8000))
     app_flask.run(port=port, host="0.0.0.0")
