@@ -1,3 +1,5 @@
+from flask import Flask, request
+
 from telegram import Update
 from telegram import InlineKeyboardButton
 from telegram import InlineKeyboardMarkup
@@ -16,7 +18,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import os
 
 #from dotenv import load_dotenv
-#
+
 ## === Lê as variáveis do arquivo .env
 #load_dotenv()
 
@@ -147,16 +149,34 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("ℹ️ Para registrar um gasto, clique primeiro no menu /iniciar.")
 
 
-# Inicialização do bot
+# === Inicialização do bot com webhook
+app_flask = Flask(__name__)
+
+TOKEN = os.getenv("BOT_TOKEN")
+
+# Inicializa o bot Telegram
+app = ApplicationBuilder().token(TOKEN).build()
+
+# Adiciona os handlers
+app.add_handler(CommandHandler("iniciar", start))
+app.add_handler(CallbackQueryHandler(menu_handler)) 
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
+
+# Rota que recebe atualizações do Telegram
+@app_flask.post("/")
+async def webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, app.bot)
+    await app.process_update(update)
+    return "OK", 200
+
+# Rota de teste
+@app_flask.get("/")
+def index():
+    return "Bot rodando com webhook!", 200
+
+# Inicia o servidor Flask
 if __name__ == '__main__':
 
-    TOKEN = os.getenv("BOT_TOKEN")
-
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("iniciar", start))
-    app.add_handler(CallbackQueryHandler(menu_handler)) 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
-
-    print("Bot iniciado...")
-    app.run_polling()
+    port = int(os.environ.get("PORT", 8000))
+    app_flask.run(port=port, host="0.0.0.0")
