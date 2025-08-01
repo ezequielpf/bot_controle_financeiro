@@ -15,6 +15,8 @@ from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
+import asyncio
+
 import os
 
 #from dotenv import load_dotenv
@@ -162,21 +164,26 @@ app.add_handler(CommandHandler("iniciar", start))
 app.add_handler(CallbackQueryHandler(menu_handler)) 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
-# Rota que recebe atualizações do Telegram
-@app_flask.post("/")
+# Inicializa o Application manualmente (antes da primeira requisição)
+@app_flask.before_first_request
+def initialize_telegram():
+    loop = asyncio.get_event_loop()
+    loop.create_task(app.initialize())
+
+# Rota webhook para receber updates
+@app_flask.route("/", methods=["POST"])
 async def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, app.bot)
     await app.process_update(update)
     return "OK", 200
 
-# Rota de teste
-@app_flask.get("/")
+# Rota de teste simples
+@app_flask.route("/", methods=["GET"])
 def index():
     return "Bot rodando com webhook!", 200
 
-# Inicia o servidor Flask
-if __name__ == '__main__':
-
+# Executa app Flask
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    app_flask.run(port=port, host="0.0.0.0")
+    app_flask.run(host="0.0.0.0", port=port)
