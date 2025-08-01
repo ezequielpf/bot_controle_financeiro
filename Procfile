@@ -1,1 +1,1 @@
-python bot_to_deploy.py
+python bot_financas.py
