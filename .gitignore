@@ -4,3 +4,4 @@ credentials.json
 *.csv
 test/*
 .env
+webhook_config.py

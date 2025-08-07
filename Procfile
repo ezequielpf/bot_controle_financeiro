@@ -1,1 +1,1 @@
-python bot_financas.py
+python bot_assistente_financeiro.py
